@@ -1,0 +1,5 @@
+fastapi>=0.111
+uvicorn[standard]>=0.29
+python-dotenv>=1.0
+feedparser>=6.0
+trafilatura>=2.0
