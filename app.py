@@ -34,50 +34,65 @@ async def analyze(body: TextInput):
     return JSONResponse(content=result)
 
 
-_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (X11; Linux x86_64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/124.0.0.0 Safari/537.36"
-    ),
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Accept-Encoding": "gzip, deflate, br",
-    "DNT": "1",
-    "Upgrade-Insecure-Requests": "1",
-    "Sec-Fetch-Dest": "document",
-    "Sec-Fetch-Mode": "navigate",
-    "Sec-Fetch-Site": "none",
-    "Sec-Fetch-User": "?1",
-    "sec-ch-ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
-    "sec-ch-ua-mobile": "?0",
-    "sec-ch-ua-platform": '"Linux"',
-}
+_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/124.0.0.0 Safari/537.36"
+)
+
+# Injected into every Playwright page — hides automation signals
+_STEALTH_JS = """
+Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+Object.defineProperty(navigator, 'plugins',   {get: () => [1,2,3,4,5]});
+Object.defineProperty(navigator, 'languages', {get: () => ['en-US','en']});
+window.chrome = { runtime: {} };
+const orig = window.navigator.permissions.query;
+window.navigator.permissions.query = p =>
+  p.name === 'notifications'
+    ? Promise.resolve({state: Notification.permission})
+    : orig(p);
+"""
+
 
 async def _fetch_html(url: str) -> str:
-    """Try httpx first (fast), fall back to Playwright (bypasses anti-bot)."""
-    import httpx
-
+    """
+    Three-attempt chain:
+      1. curl_cffi  — Chrome TLS fingerprint impersonation (fastest, beats most firewalls)
+      2. Playwright — real headless browser with stealth scripts (beats JS challenges)
+    """
+    # ── Attempt 1: curl_cffi (real Chrome TLS fingerprint) ──────────────────
     try:
-        async with httpx.AsyncClient(
-            headers=_HEADERS, follow_redirects=True, timeout=15, http2=True,
-        ) as client:
-            resp = await client.get(url)
+        from curl_cffi.requests import AsyncSession
+        async with AsyncSession() as s:
+            resp = await s.get(
+                url,
+                impersonate="chrome124",
+                headers={"Accept-Language": "en-US,en;q=0.9"},
+                follow_redirects=True,
+                timeout=15,
+            )
             if resp.status_code < 400:
                 return resp.text
     except Exception:
         pass
 
-    # Fallback: real headless browser
+    # ── Attempt 2: Playwright + stealth ─────────────────────────────────────
     from playwright.async_api import async_playwright
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        ctx = await browser.new_context(
-            user_agent=_HEADERS["User-Agent"],
-            locale="en-US",
+        browser = await p.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-blink-features=AutomationControlled"],
         )
+        ctx = await browser.new_context(
+            user_agent=_UA,
+            locale="en-US",
+            timezone_id="America/New_York",
+            viewport={"width": 1280, "height": 800},
+            java_script_enabled=True,
+        )
+        await ctx.add_init_script(_STEALTH_JS)
         page = await ctx.new_page()
-        await page.goto(url, wait_until="domcontentloaded", timeout=30_000)
+        await page.goto(url, wait_until="networkidle", timeout=35_000)
         html = await page.content()
         await browser.close()
         return html
