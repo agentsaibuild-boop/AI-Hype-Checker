@@ -1,0 +1,204 @@
+{
+  "project": "AI Hype Checker",
+  "repository": "https://github.com/agentsaibuild-boop/AI-Hype-Checker",
+  "purpose": "Морфологичен и аргументативен анализ на AI съдържание — отсява реални технически пробиви от маркетингов хайп",
+  "last_updated": "2026-04-15",
+
+  "philosophy": {
+    "core_principle": "Хайпът се измерва по активното присъствие на маркетингов език, НЕ по липсата на доказателства. Липсата на evidence в текста не прави текста хайп — може да описва общоизвестни факти.",
+    "source_agnostic": "Системата НЕ филтрира по източник — NYT може да пише за реален пробив, arXiv може да хайпва. Анализира се текстът, не платформата.",
+    "no_author_profiling": "Системата НЕ прави изводи за типа автор (PR екип, изследовател и т.н.) — това е предразсъдък.",
+    "category_fires_once": "Всяка hype категория допринася максимум веднъж към score-а, независимо от броя съвпадения в текста. Предотвратява изкуствено натрупване от повторения."
+  },
+
+  "architecture": {
+    "backend": {
+      "framework": "FastAPI",
+      "entry_point": "app.py",
+      "port": "env PORT (default 8000)",
+      "endpoints": [
+        {
+          "path": "GET /",
+          "description": "Сервира index.html"
+        },
+        {
+          "path": "POST /analyze",
+          "body": { "text": "string" },
+          "description": "Анализира текст, връща scoring резултат"
+        },
+        {
+          "path": "POST /scrape",
+          "body": { "url": "string" },
+          "description": "Зарежда URL с httpx (fast path) или Playwright (fallback за защитени сайтове), извлича текст с trafilatura"
+        },
+        {
+          "path": "POST /extract-html",
+          "body": { "html": "string", "url": "string (optional)" },
+          "description": "Извлича текст от raw HTML — за случаи когато потребителят запазва страницата ръчно (Ctrl+S)"
+        }
+      ]
+    },
+    "scorer": {
+      "file": "scorer.py",
+      "description": "Хибридна система: hype patterns (морфологични) + Toulmin структурни елементи (аргументативни)"
+    },
+    "frontend": {
+      "file": "index.html",
+      "type": "Single-page, vanilla JS, без framework",
+      "description": "Тъмен UI с маркиран текст, score breakdown, Toulmin анализ, novelty verdict, trust conclusion"
+    }
+  },
+
+  "scraping_chain": {
+    "description": "При блокиран достъп системата показва верига от алтернативи",
+    "steps": [
+      {
+        "step": 1,
+        "method": "httpx с browser headers + HTTP/2",
+        "speed": "~1 сек",
+        "success_rate": "~70% от сайтовете"
+      },
+      {
+        "step": 2,
+        "method": "Playwright headless Chromium (автоматичен fallback)",
+        "speed": "~3-5 сек",
+        "success_rate": "~90% от сайтовете"
+      },
+      {
+        "step": 3,
+        "method": "Ръчно — потребителят копира текст или запазва .html файл",
+        "trigger": "При HTTP 403 или неуспешно извличане се показват инструкции в UI"
+      }
+    ]
+  },
+
+  "scoring_system": {
+    "hype_score": {
+      "range": "0–10",
+      "method": "Сума от weights на fired hype категории / максимална възможна сума × 10",
+      "key_rule": "Всяка категория се брои ВЕДНЪЖ — не се натрупва по брой думи",
+      "categories": [
+        { "label": "Революционни претенции", "weight": 3.0, "color": "#ef4444", "examples": ["redefining", "paradigm shift", "unprecedented", "game-changing"] },
+        { "label": "PR структура", "weight": 2.5, "color": "#f97316", "examples": ["the company said it designed", "announced today", "proud to introduce"] },
+        { "label": "Неизмерени твърдения", "weight": 2.0, "color": "#f59e0b", "examples": ["significantly improved", "dramatically reduces", "faster development"] },
+        { "label": "Демократизационен език", "weight": 2.0, "color": "#a855f7", "examples": ["zero-code", "no-code", "even non-technical users", "as simple as"] },
+        { "label": "Маркетингови суперлативи", "weight": 1.5, "color": "#ec4899", "examples": ["cutting-edge", "next-generation", "world-class", "industry-leading"] },
+        { "label": "Претенциозност", "weight": 2.0, "color": "#dc2626", "examples": ["proves that", "definitively", "will always", "beyond human-level"] }
+      ]
+    },
+    "signal_score": {
+      "range": "0–10",
+      "method": "Сума от weights на fired signal категории / максимална възможна сума × 10",
+      "key_rule": "Само бонуси — липсата на evidence НЕ е наказание",
+      "categories": [
+        { "label": "Доказателство", "weight": 3.0, "color": "#10b981", "examples": ["44.6%", "7M params", "1K train samples", "87.4% accuracy"] },
+        { "label": "Обяснение (Warrant)", "weight": 2.0, "color": "#06b6d4", "examples": ["because of", "due to", "which explains that", "backprop through"] },
+        { "label": "Prior work / Верифицируемост", "weight": 2.5, "color": "#8b5cf6", "examples": ["et al.", "arxiv", "github.com", "building on prior work"] },
+        { "label": "Признати ограничения", "weight": 3.0, "color": "#14b8a6", "examples": ["limitation", "does not generalize", "future work", "only tested on"] },
+        { "label": "Научна предпазливост", "weight": 1.5, "color": "#3b82f6", "examples": ["suggests that", "may indicate", "in our experiments", "appears to"] },
+        { "label": "Сравнение с baseline", "weight": 2.0, "color": "#22c55e", "examples": ["compared to", "vs.", "outperforms X", "prior work at 37%"] }
+      ]
+    },
+    "independence": "Hype и Signal score са НЕЗАВИСИМИ — можеш да имаш висок и двата (добре облечена наука) или нисък и двата (неутрален текст)"
+  },
+
+  "novelty_assessment": {
+    "description": "Независим от scoring — засича дали текстът твърди новост и дали я контекстуализира",
+    "verdicts": [
+      { "condition": "Твърди новост + цитира prior work", "label": "Нова теза с контекст", "color": "#10b981" },
+      { "condition": "Твърди новост + без prior work", "label": "Претендира за новост", "color": "#f59e0b" },
+      { "condition": "Без новостни твърдения + с prior work", "label": "Надгражда познатото", "color": "#3b82f6" },
+      { "condition": "Нито едното", "label": "Неясно", "color": "#64748b" }
+    ],
+    "novelty_patterns_detect": ["first to", "novel approach", "we propose a new", "previously unexplored", "state-of-the-art"]
+  },
+
+  "trust_conclusion": {
+    "description": "Синтез на всички сигнали в human-readable извод",
+    "levels": [
+      { "condition": "signal >= 7 AND hype <= 2", "level": "Висок", "color": "#10b981" },
+      { "condition": "signal >= 5 AND hype <= 4", "level": "Умерен", "color": "#3b82f6" },
+      { "condition": "signal >= 4 AND hype >= 5", "level": "Умерен с резерви", "color": "#f59e0b" },
+      { "condition": "hype >= 7 AND signal <= 3", "level": "Нисък", "color": "#ef4444" },
+      { "condition": "hype < 3 AND signal < 3", "level": "Неясен", "color": "#64748b" },
+      { "condition": "default", "level": "Смесен", "color": "#f59e0b" }
+    ],
+    "components": [
+      "Основен verdict текст",
+      "✓ Позитиви (конкретни причини за доверие)",
+      "⚠ Резерви (конкретни неща да следиш)",
+      "Твърдения подкрепени в текста (изречения с claim + nearby evidence)",
+      "Трябва да се провери независимо (изречения с claim без nearby evidence)"
+    ]
+  },
+
+  "claim_extraction": {
+    "description": "Извлича изречения с claim паттерни и ги класифицира спрямо proximity на evidence",
+    "method": "Разделя текста на изречения → засича claim паттерни → проверява дали в ±1 изречение има evidence паттерн",
+    "supported_label": "Твърдения подкрепени в текста",
+    "to_verify_label": "Трябва да се провери независимо",
+    "limits": "max 3 supported, max 4 to_verify"
+  },
+
+  "validated_examples": [
+    {
+      "text": "AGIBOT Genie Studio Agent press release",
+      "expected": { "hype": "~7-8", "signal": "~1-2", "verdict": "Маркетингов хайп" },
+      "key_triggers": ["redefining deployment efficiency", "fundamental shift", "zero-code", "even non-technical users", "the company said it designed"]
+    },
+    {
+      "text": "TRM 7M parameter recursive model paper",
+      "expected": { "hype": "~1-2", "signal": "~8-9", "verdict": "Силна аргументация" },
+      "key_triggers_signal": ["44.6%", "7M params", "et al.", "ablation", "remains unsolved", "github", "limitation"]
+    }
+  ],
+
+  "deployment": {
+    "platform": "Railway",
+    "docker_image": "mcr.microsoft.com/playwright/python:v1.48.0-jammy",
+    "reason_for_playwright_image": "Официалният Playwright image включва Chromium и всички system dependencies — по-надежден от ръчна инсталация в slim образ",
+    "environment_variables": {
+      "PORT": "Автоматично от Railway"
+    }
+  },
+
+  "design_decisions": [
+    {
+      "decision": "Не филтрираме по източник",
+      "reason": "Предразсъдък — NYT може да е по-ценен от arXiv в даден контекст"
+    },
+    {
+      "decision": "Всяка категория фиира веднъж",
+      "reason": "Предотвратява score inflation от повторения на една дума"
+    },
+    {
+      "decision": "Signal е само бонус, не наказва липса на evidence",
+      "reason": "Общоизвестните факти не изискват доказателства в текста — Нютоновата гравитация не трябва да се цитира"
+    },
+    {
+      "decision": "Hype и Signal са независими оси",
+      "reason": "Текст може да е едновременно технически съдържателен И промоционален"
+    },
+    {
+      "decision": "Toulmin модел за структурни сигнали",
+      "reason": "Академичният стандарт за аргументативна оценка — claim/grounds/warrant/backing/rebuttal/qualifier"
+    },
+    {
+      "decision": "Без Claude API за content analysis",
+      "reason": "Инструментът е безплатен за ползване — всичко работи локално с regex"
+    },
+    {
+      "decision": "Playwright като fallback за scraping",
+      "reason": "Реален браузър bypass-ва Cloudflare и anti-bot защити (~90% успеваемост)"
+    }
+  ],
+
+  "known_limitations": [
+    "Работи предимно с английски текст — паттерните са на английски",
+    "Claim extraction разчита на sentence boundaries — неточно при сложни изречения",
+    "~10% от сайтовете блокират дори Playwright (агресивен Cloudflare)",
+    "Regex не разбира контекст — 'does not prove' може да се засече като 'proves'"
+  ],
+
+  "future_improvements": []
+}
