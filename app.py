@@ -61,7 +61,7 @@ window.navigator.permissions.query = p =>
 async def _fetch_via_jina(url: str) -> str:
     """Jina AI Reader — връща чист текст директно, заобикаля повечето anti-bot защити."""
     import httpx
-    async with httpx.AsyncClient(follow_redirects=True, timeout=20) as client:
+    async with httpx.AsyncClient(allow_redirects=True, timeout=20) as client:
         resp = await client.get(
             f"https://r.jina.ai/{url}",
             headers={
@@ -103,7 +103,7 @@ async def _fetch_html(url: str) -> str:
                 url,
                 impersonate="chrome124",
                 headers={"Accept-Language": "en-US,en;q=0.9"},
-                follow_redirects=True,
+                allow_redirects=True,
                 timeout=15,
             )
             if resp.status_code < 400:
@@ -161,7 +161,7 @@ async def scrape(body: UrlInput):
                 url,
                 impersonate="chrome124",
                 headers={"Accept-Language": "en-US,en;q=0.9"},
-                follow_redirects=True,
+                allow_redirects=True,
                 timeout=15,
             )
             if resp.status_code < 400:
