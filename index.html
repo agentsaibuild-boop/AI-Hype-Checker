@@ -441,8 +441,8 @@ async function runAnalysis() {
   btn.disabled = true;
   panel.innerHTML = '';
 
-  // Step 1: scrape URL if provided (skip if text already pasted manually)
-  if (url && !area.value.trim()) {
+  // Step 1: scrape URL only if no text has been pasted manually
+  if (url && area.value.trim().length < 150) {
     btn.innerHTML = '<span class="spinner"></span>Зареждам...';
     const res  = await fetch("/scrape", {
       method:  "POST",
