@@ -7,6 +7,10 @@ import trafilatura
 import scorer
 import os
 
+import nltk
+nltk.download("punkt", quiet=True)
+nltk.download("punkt_tab", quiet=True)
+
 app = FastAPI(title="AI Hype Checker")
 
 
