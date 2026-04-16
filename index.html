@@ -215,6 +215,21 @@
       transition: width .5s cubic-bezier(.4,0,.2,1);
     }
 
+    /* ── Generic section wrapper ────────────────────── */
+    .section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .summary-block {
+      border-color: #6366f133;
+      background: #6366f108;
+    }
+
     /* ── Triggers ────────────────────────────────────── */
     .section-title {
       font-size: 12px;
@@ -471,18 +486,21 @@ async function runAnalysis() {
   btn.innerHTML = '<span class="spinner"></span>Анализирам...';
   panel.innerHTML = '';
 
-  let data;
+  let data, summary = null;
   try {
-    const res = await fetch("/analyze", {
-      method:  "POST",
-      headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ text }),
-    });
-    if (!res.ok) {
-      const err = await res.json();
+    const [analyzeRes, summarizeRes] = await Promise.all([
+      fetch("/analyze",   { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) }),
+      fetch("/summarize", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) }),
+    ]);
+    if (!analyzeRes.ok) {
+      const err = await analyzeRes.json();
       throw new Error(err.detail || "Грешка при анализ.");
     }
-    data = await res.json();
+    data = await analyzeRes.json();
+    if (summarizeRes.ok) {
+      const s = await summarizeRes.json();
+      summary = s.summary || null;
+    }
   } catch (e) {
     panel.innerHTML = `<div class="error-msg">${e.message}</div>`;
     btn.disabled = false;
@@ -492,7 +510,7 @@ async function runAnalysis() {
 
   btn.disabled = false;
   btn.textContent = "Анализирай";
-  renderResults(panel, data);
+  renderResults(panel, data, summary);
 }
 
 function scrapeFailedHtml(url, status, detail) {
@@ -576,7 +594,7 @@ async function loadHtmlFile(event) {
   runAnalysis();
 }
 
-function renderResults(panel, d) {
+function renderResults(panel, d, summary) {
   const barPct = Math.round(d.hype_score * 10);
 
   // ── Scores ───────────────────────────────────────────
@@ -751,7 +769,13 @@ function renderResults(panel, d) {
       </div>
     </div>`;
 
-  panel.innerHTML = scoresHtml + trustHtml + noveltyHtml + toulminHtml + triggersHtml + textHtml;
+  const summaryHtml = summary ? `
+    <div class="section summary-block">
+      <div class="section-title">РЕЗЮМЕ</div>
+      <p style="font-size:14px;line-height:1.75;color:#cbd5e1;margin:0;">${esc(summary)}</p>
+    </div>` : '';
+
+  panel.innerHTML = summaryHtml + scoresHtml + trustHtml + noveltyHtml + toulminHtml + triggersHtml + textHtml;
 }
 
 function scoreColor(v, isHype) {

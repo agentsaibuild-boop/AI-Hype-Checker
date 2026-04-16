@@ -232,6 +232,40 @@ async def extract_html(body: HtmlInput):
     return JSONResponse(content={"text": text})
 
 
+@app.post("/summarize")
+async def summarize(body: TextInput):
+    text = body.text.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Текстът е празен.")
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY не е конфигуриран.")
+
+    import anthropic
+    client = anthropic.Anthropic(api_key=api_key)
+
+    message = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=300,
+        messages=[
+            {
+                "role": "user",
+                "content": (
+                    "Summarize the following article in 4-5 sentences. "
+                    "Be strictly factual — state only what the article actually claims. "
+                    "Do not evaluate, do not add opinions, do not use marketing language. "
+                    "Write in the same language as the article.\n\n"
+                    f"{text[:4000]}"
+                ),
+            }
+        ],
+    )
+
+    summary = message.content[0].text.strip()
+    return JSONResponse(content={"summary": summary})
+
+
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8000))
