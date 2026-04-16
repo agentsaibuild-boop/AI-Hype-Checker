@@ -7,10 +7,6 @@ import trafilatura
 import scorer
 import os
 
-import nltk
-nltk.download("punkt", quiet=True)
-nltk.download("punkt_tab", quiet=True)
-
 app = FastAPI(title="AI Hype Checker")
 
 
@@ -235,26 +231,6 @@ async def extract_html(body: HtmlInput):
         raise HTTPException(status_code=422, detail="Не може да се извлече текст от предоставения HTML.")
     return JSONResponse(content={"text": text})
 
-
-@app.post("/summarize")
-async def summarize(body: TextInput):
-    text = body.text.strip()
-    if not text:
-        raise HTTPException(status_code=400, detail="Текстът е празен.")
-
-    from sumy.parsers.plaintext import PlaintextParser
-    from sumy.nlp.tokenizers import Tokenizer
-    from sumy.summarizers.lex_rank import LexRankSummarizer
-
-    parser = PlaintextParser.from_string(text, Tokenizer("english"))
-    summarizer = LexRankSummarizer()
-    sentences = summarizer(parser.document, sentences_count=5)
-    summary = " ".join(str(s) for s in sentences)
-
-    if not summary.strip():
-        raise HTTPException(status_code=422, detail="Не може да се генерира резюме.")
-
-    return JSONResponse(content={"summary": summary})
 
 
 if __name__ == "__main__":
