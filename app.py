@@ -57,7 +57,7 @@ window.navigator.permissions.query = p =>
 async def _fetch_via_jina(url: str) -> str:
     """Jina AI Reader — връща чист текст директно, заобикаля повечето anti-bot защити."""
     import httpx
-    async with httpx.AsyncClient(allow_redirects=True, timeout=20) as client:
+    async with httpx.AsyncClient(follow_redirects=True, timeout=20) as client:
         resp = await client.get(
             f"https://r.jina.ai/{url}",
             headers={
