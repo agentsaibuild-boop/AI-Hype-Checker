@@ -67,13 +67,9 @@ async def _fetch_via_jina(url: str) -> str:
         )
         if resp.status_code >= 400:
             raise RuntimeError(f"Jina: HTTP {resp.status_code}")
-        text = resp.text
-        # Jina сам предупреждава когато попадне на CAPTCHA/bot challenge страница
-        if "requiring CAPTCHA" in text or "Robot Challenge" in text or "Checking the site connection" in text:
-            raise RuntimeError("Jina: страницата изисква CAPTCHA")
-        if len(text.split()) < 20:
+        if len(resp.text.split()) < 20:
             raise RuntimeError("Jina: извлеченият текст е твърде кратък")
-        return text
+        return resp.text
 
 
 async def _fetch_html(url: str) -> str:
