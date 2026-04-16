@@ -93,7 +93,7 @@ async def _fetch_html(url: str) -> str:
                 url,
                 impersonate="chrome124",
                 headers={"Accept-Language": "en-US,en;q=0.9"},
-                follow_redirects=True,
+                allow_redirects=True,
                 timeout=15,
             )
             if resp.status_code < 400:
@@ -151,7 +151,7 @@ async def scrape(body: UrlInput):
                 url,
                 impersonate="chrome124",
                 headers={"Accept-Language": "en-US,en;q=0.9"},
-                follow_redirects=True,
+                allow_redirects=True,
                 timeout=15,
             )
             if resp.status_code < 400:
