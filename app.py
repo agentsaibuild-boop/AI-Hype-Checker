@@ -54,13 +54,38 @@ window.navigator.permissions.query = p =>
 """
 
 
+async def _fetch_via_jina(url: str) -> str:
+    """Jina AI Reader — връща чист текст директно, заобикаля повечето anti-bot защити."""
+    import httpx
+    async with httpx.AsyncClient(follow_redirects=True, timeout=20) as client:
+        resp = await client.get(
+            f"https://r.jina.ai/{url}",
+            headers={
+                "Accept": "text/plain",
+                "X-No-Cache": "true",
+            },
+        )
+        if resp.status_code < 400 and len(resp.text.split()) >= 20:
+            return resp.text
+        raise RuntimeError(f"Jina: HTTP {resp.status_code}")
+
+
 async def _fetch_html(url: str) -> str:
     """
     Three-attempt chain:
-      1. curl_cffi  — Chrome TLS fingerprint impersonation (fastest, beats most firewalls)
-      2. Playwright — real headless browser with stealth scripts (beats JS challenges)
+      1. Jina AI Reader — clean text extraction, bypasses most anti-bot walls (no browser needed)
+      2. curl_cffi      — Chrome TLS fingerprint impersonation
+      3. Playwright     — real headless browser with stealth scripts
     """
-    # ── Attempt 1: curl_cffi (real Chrome TLS fingerprint) ──────────────────
+    errors = []
+
+    # ── Attempt 1: Jina AI Reader (most reliable, no browser needed) ────────
+    try:
+        return await _fetch_via_jina(url)
+    except Exception as e:
+        errors.append(f"jina: {e}")
+
+    # ── Attempt 2: curl_cffi (real Chrome TLS fingerprint) ──────────────────
     try:
         from curl_cffi.requests import AsyncSession
         async with AsyncSession() as s:
@@ -73,29 +98,35 @@ async def _fetch_html(url: str) -> str:
             )
             if resp.status_code < 400:
                 return resp.text
-    except Exception:
-        pass
+            errors.append(f"curl_cffi: HTTP {resp.status_code}")
+    except Exception as e:
+        errors.append(f"curl_cffi: {e}")
 
-    # ── Attempt 2: Playwright + stealth ─────────────────────────────────────
-    from playwright.async_api import async_playwright
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(
-            headless=True,
-            args=["--no-sandbox", "--disable-blink-features=AutomationControlled"],
-        )
-        ctx = await browser.new_context(
-            user_agent=_UA,
-            locale="en-US",
-            timezone_id="America/New_York",
-            viewport={"width": 1280, "height": 800},
-            java_script_enabled=True,
-        )
-        await ctx.add_init_script(_STEALTH_JS)
-        page = await ctx.new_page()
-        await page.goto(url, wait_until="networkidle", timeout=35_000)
-        html = await page.content()
-        await browser.close()
-        return html
+    # ── Attempt 3: Playwright + stealth ─────────────────────────────────────
+    try:
+        from playwright.async_api import async_playwright
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(
+                headless=True,
+                args=["--no-sandbox", "--disable-blink-features=AutomationControlled"],
+            )
+            ctx = await browser.new_context(
+                user_agent=_UA,
+                locale="en-US",
+                timezone_id="America/New_York",
+                viewport={"width": 1280, "height": 800},
+                java_script_enabled=True,
+            )
+            await ctx.add_init_script(_STEALTH_JS)
+            page = await ctx.new_page()
+            await page.goto(url, wait_until="networkidle", timeout=35_000)
+            html = await page.content()
+            await browser.close()
+            return html
+    except Exception as e:
+        errors.append(f"playwright: {e}")
+
+    raise RuntimeError(" | ".join(errors))
 
 
 @app.post("/scrape")
@@ -104,10 +135,60 @@ async def scrape(body: UrlInput):
     if not url.startswith(("http://", "https://")):
         raise HTTPException(status_code=400, detail="Невалиден URL.")
 
+    # ── Attempt 1: Jina returns clean text directly ──────────────────────────
     try:
-        html = await _fetch_html(url)
+        text = await _fetch_via_jina(url)
+        return JSONResponse(content={"text": text})
+    except Exception:
+        pass
+
+    # ── Attempts 2-3: fetch HTML, then extract with trafilatura ─────────────
+    html_errors = []
+    try:
+        from curl_cffi.requests import AsyncSession
+        async with AsyncSession() as s:
+            resp = await s.get(
+                url,
+                impersonate="chrome124",
+                headers={"Accept-Language": "en-US,en;q=0.9"},
+                follow_redirects=True,
+                timeout=15,
+            )
+            if resp.status_code < 400:
+                html = resp.text
+            else:
+                html_errors.append(f"curl_cffi: HTTP {resp.status_code}")
+                html = None
     except Exception as e:
-        raise HTTPException(status_code=422, detail=f"Неуспешно зареждане: {e}")
+        html_errors.append(f"curl_cffi: {e}")
+        html = None
+
+    if html is None:
+        try:
+            from playwright.async_api import async_playwright
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(
+                    headless=True,
+                    args=["--no-sandbox", "--disable-blink-features=AutomationControlled"],
+                )
+                ctx = await browser.new_context(
+                    user_agent=_UA,
+                    locale="en-US",
+                    timezone_id="America/New_York",
+                    viewport={"width": 1280, "height": 800},
+                    java_script_enabled=True,
+                )
+                await ctx.add_init_script(_STEALTH_JS)
+                page = await ctx.new_page()
+                await page.goto(url, wait_until="networkidle", timeout=35_000)
+                html = await page.content()
+                await browser.close()
+        except Exception as e:
+            html_errors.append(f"playwright: {e}")
+            html = None
+
+    if html is None:
+        raise HTTPException(status_code=422, detail=f"Неуспешно зареждане: {' | '.join(html_errors)}")
 
     text = trafilatura.extract(
         html,
